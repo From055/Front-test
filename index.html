@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>주식 테마 분석 대시보드 v2.3</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@2.0.1/dist/chartjs-chart-matrix.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        html { scroll-behavior: smooth; }
+        .chart-container { position: relative; width: 100%; max-width: 1200px; margin-left: auto; margin-right: auto; height: 60vh; max-height: 700px; }
+        @media (max-width: 768px) { .chart-container { height: 70vh; } }
+        .loading-spinner { border: 4px solid rgba(0, 0, 0, 0.1); border-left-color: #4f46e5; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #theme-tooltip { position: absolute; display: none; background-color: #111827; color: white; padding: 10px; border-radius: 8px; z-index: 100; pointer-events: none; font-size: 0.875rem; max-width: 300px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); }
+        .btn-group button.active { background-color: #4f46e5; color: white; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); }
+        .winner-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+        .winner-table th, .winner-table td { border: 1px solid #e5e7eb; padding: 10px; text-align: center; }
+        .winner-table th { background-color: #f9fafb; color: #374151; font-weight: 600; }
+        .winner-table td:first-child { font-weight: bold; background-color: #f9fafb; }
+        .dashboard-card { transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out; }
+    </style>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Pretendard', 'sans-serif'],
+            },
+          }
+        }
+      }
+    </script>
+</head>
+<body class="bg-slate-100 text-slate-700 font-sans">
+
+    <div id="theme-tooltip"></div>
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <header class="text-center mb-10">
+            <h1 class="text-4xl sm:text-5xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-purple-500 pb-2">주식 테마 분석 대시보드</h1>
+            <p class="mt-2 text-lg text-slate-500">나만의 테마를 만들어 수익률, 상관관계를 분석하고 시각화합니다.</p>
+        </header>
+
+        <main class="space-y-8">
+            <section id="theme-creator" class="bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-bold text-slate-800 mb-4 border-b pb-3">1. 나만의 테마 만들기 / 수정하기</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                    <div><label for="theme-name" class="block text-sm font-semibold text-slate-600 mb-1">테마 이름</label><input type="text" id="theme-name" placeholder="예: AI 반도체" class="mt-1 block w-full p-2 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"></div>
+                    <div><label for="stock-input" class="block text-sm font-semibold text-slate-600 mb-1">종목 추가 (국내/미국/ETF)</label><div class="flex mt-1"><input type="text" id="stock-input" placeholder="예: 005930, TSLA, TIGER 2차전지테마" class="block w-full p-2 border border-slate-300 rounded-l-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition" list="stock-suggestions"><datalist id="stock-suggestions"></datalist><button id="add-stock-button" class="bg-slate-700 text-white px-4 rounded-r-lg hover:bg-slate-800 transition-colors">추가</button></div></div>
+                </div>
+                <div class="mt-4">
+                    <h3 class="text-md font-semibold text-slate-600">현재 테마에 포함된 종목: 
+                        <button id="clear-current-theme" class="ml-2 text-xs text-red-500 hover:underline">[모두 지우기]</button>
+                    </h3>
+                    <div id="current-theme-stocks" class="mt-2 p-3 bg-slate-50 border rounded-lg min-h-[48px] text-slate-600 flex flex-wrap gap-2"></div>
+                </div>
+                <div class="mt-4 text-right space-x-2"><button id="cancel-edit-button" class="hidden bg-gray-500 text-white font-bold py-2 px-5 rounded-lg hover:bg-gray-600 transition-colors">수정 취소</button><button id="save-theme-button" class="bg-green-600 text-white font-bold py-2 px-5 rounded-lg hover:bg-green-700 transition-colors">테마 저장</button></div>
+            </section>
+            
+            <section id="controls" class="bg-white p-6 rounded-xl shadow-lg">
+                <div class="mb-6 border-b pb-3"><h2 class="text-2xl font-bold text-slate-800">2. 분석 설정</h2></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+                    <div><h3 class="text-lg font-semibold text-slate-700 mb-3">기간 선택</h3><div class="flex flex-col space-y-4"><div><label for="start-date" class="block text-sm font-semibold text-slate-600 mb-1">시작일</label><input type="date" id="start-date" class="w-full p-2 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"></div><div><label for="end-date" class="block text-sm font-semibold text-slate-600 mb-1">종료일</label><input type="date" id="end-date" class="w-full p-2 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition"></div></div></div>
+                    <div><h3 class="text-lg font-semibold text-slate-700 mb-3">주기 선택</h3><div id="timeframe-selector" class="btn-group flex space-x-1 rounded-lg bg-slate-200 p-1"><button data-value="D" class="flex-1 p-2 text-sm font-semibold rounded-md transition-colors active">일별</button><button data-value="W" class="flex-1 p-2 text-sm font-semibold rounded-md transition-colors">주별</button><button data-value="M" class="flex-1 p-2 text-sm font-semibold rounded-md transition-colors">월별</button></div></div>
+                    <div class="md:col-span-2"><h3 class="text-lg font-semibold text-slate-700 mb-3">테마 선택 (다중 선택 가능)</h3><div id="custom-themes-checkboxes" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-x-4 gap-y-2 p-3 border rounded-lg bg-slate-50 min-h-[80px]"></div></div>
+                </div>
+                <div class="mt-8 text-center"><button id="analyze-button" class="bg-indigo-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-300 transition-all duration-300 transform hover:scale-105 shadow-lg">분석 시작</button></div>
+            </section>
+            
+            <div id="loading" class="flex-col justify-center items-center py-10 hidden"><div class="loading-spinner"></div><p class="ml-4 text-slate-500 mt-4">실제 데이터를 가져오는 중입니다...</p></div>
+            <section id="dashboard" class="hidden space-y-8">
+                 <div id="summary-section" class="dashboard-card bg-white p-4 sm:p-6 rounded-xl shadow-lg"><div class="mb-4"><h2 class="text-2xl font-bold text-slate-800 mb-2">요약</h2><p class="text-slate-500">선택하신 기간 동안의 주요 성과 지표입니다.</p></div><div id="summary-cards" class="grid grid-cols-1 md:grid-cols-2 gap-6"></div></div>
+                 <div id="performance-chart-section" class="dashboard-card bg-white p-4 sm:p-6 rounded-xl shadow-lg"><div class="mb-4"><h2 class="text-2xl font-bold text-slate-800 mb-2">누적 수익률 그래프</h2><p class="text-slate-500">시간에 따른 테마별 누적 수익률(%) 추이입니다.</p></div><div class="chart-container"><canvas id="performance-line-chart"></canvas></div></div>
+                 <div id="heatmap-section" class="dashboard-card bg-white p-4 sm:p-6 rounded-xl shadow-lg"><div class="mb-4"><h2 class="text-2xl font-bold text-slate-800 mb-2">기간별 수익률 히트맵 (테마)</h2><p class="text-slate-500">테마별 수익률을 나타냅니다. 수익률이 높은 순서대로 정렬됩니다.</p></div><div class="chart-container"><canvas id="heatmap-chart"></canvas></div>
+                    <div class="mt-4 overflow-x-auto"><table id="winner-theme-table" class="winner-table"></table></div>
+                 </div>
+                 <div id="stock-heatmap-section" class="dashboard-card bg-white p-4 sm:p-6 rounded-xl shadow-lg"><div class="mb-4"><h2 class="text-2xl font-bold text-slate-800 mb-2">기간별 수익률 히트맵 (개별 종목)</h2><p class="text-slate-500">선택한 테마에 포함된 개별 종목의 일별 수익률(%)을 나타냅니다.</p></div><div id="stock-heatmap-viewport" class="relative" style="max-height: 80vh; overflow-y: auto;"><div id="stock-heatmap-container" class="relative"><canvas id="stock-heatmap-chart"></canvas></div></div>
+                    <div class="mt-4 overflow-x-auto"><table id="winner-stock-table" class="winner-table"></table></div>
+                </div>
+                 <div id="correlation-section" class="dashboard-card bg-white p-4 sm:p-6 rounded-xl shadow-lg"><div class="mb-4"><h2 class="text-2xl font-bold text-slate-800 mb-2">테마별 상관계수</h2><p class="text-slate-500">테마 수익률 간의 상관관계를 나타냅니다. 1에 가까울수록 같이 움직이고, -1에 가까울수록 반대로 움직입니다.</p></div><div class="chart-container"><canvas id="correlation-chart"></canvas></div></div>
+            </section>
+        </main>
+        <footer class="text-center mt-12 text-sm text-slate-500"><p>본 애플리케이션은 FinanceDataReader를 통해 제공되는 실제 시장 데이터를 기반으로 합니다. 모든 분석 결과는 정보 제공을 목적으로 하며, 실제 투자에 대한 책임은 본인에게 있습니다.</p><p>&copy; 2025 Interactive Dashboard. All Rights Reserved.</p></footer>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // 전역 변수 및 상태
+            let allStocks = [], currentTheme = { name: '', stocks: [] }, savedThemes = [];
+            let rawData = { themed_returns: [], stock_level_returns: [], correlation_matrix: {} };
+            let summaryData = {}, editingThemeName = null;
+            let performanceChart, heatmapChart, stockHeatmapChart, correlationChart;
+            
+            // UI 요소
+            const ui = {
+                themeName: document.getElementById('theme-name'), stockInput: document.getElementById('stock-input'),
+                addStock: document.getElementById('add-stock-button'), currentStocks: document.getElementById('current-theme-stocks'),
+                saveTheme: document.getElementById('save-theme-button'), cancelEdit: document.getElementById('cancel-edit-button'),
+                clearTheme: document.getElementById('clear-current-theme'), themeCheckboxes: document.getElementById('custom-themes-checkboxes'),
+                analyze: document.getElementById('analyze-button'), timeframeSelector: document.getElementById('timeframe-selector'),
+                tooltip: document.getElementById('theme-tooltip'), stockHeatmapContainer: document.getElementById('stock-heatmap-container'),
+            };
+
+            // 초기화
+            async function initialize() {
+                const today = new Date();
+                const oneMonthAgo = new Date();
+                oneMonthAgo.setMonth(today.getMonth() - 1);
+                document.getElementById('start-date').value = oneMonthAgo.toISOString().split('T')[0];
+                document.getElementById('end-date').value = today.toISOString().split('T')[0];
+                loadThemesFromStorage();
+                renderCurrentThemeStocks();
+                try {
+                    const res = await fetch('http://127.0.0.1:5001/api/all-stocks');
+                    if (!res.ok) throw new Error('서버에서 전체 종목 목록을 가져오지 못했습니다.');
+                    const data = await res.json();
+                    if(data.error) throw new Error(data.error);
+                    allStocks = data.stocks;
+                    populateStockSuggestions(allStocks);
+                } catch (error) { console.error("초기화 실패:", error); alert(`서버 연결 실패: ${error.message}`); }
+            }
+
+            function populateStockSuggestions(stocks) { ui.stockInput.nextElementSibling.innerHTML = stocks.map(s => `<option value="${s.Name} (${s.Code})"></option>`).join(''); }
+
+            // 테마 관리 (CRUD + localStorage)
+            function saveThemesToStorage() { localStorage.setItem('myStockThemesV2', JSON.stringify(savedThemes)); }
+            function loadThemesFromStorage() { const d = localStorage.getItem('myStockThemesV2'); if (d) { savedThemes = JSON.parse(d); renderSavedThemes(); } }
+            
+            ui.saveTheme.addEventListener('click', () => {
+                const themeName = ui.themeName.value.trim();
+                if (!themeName || currentTheme.stocks.length === 0) { alert('테마 이름과 하나 이상의 종목을 추가해야 합니다.'); return; }
+                if (editingThemeName) {
+                    const idx = savedThemes.findIndex(t => t.name === editingThemeName);
+                    if (idx > -1) {
+                         if (savedThemes.some(t => t.name === themeName && t.name !== editingThemeName)) { alert('이미 존재하는 테마 이름입니다.'); return; }
+                        savedThemes[idx] = { name: themeName, stocks: [...currentTheme.stocks] };
+                    }
+                    stopEditingTheme();
+                } else {
+                    if (savedThemes.some(t => t.name === themeName)) { alert('이미 존재하는 테마 이름입니다.'); return; }
+                    savedThemes.push({ name: themeName, stocks: [...currentTheme.stocks] });
+                }
+                saveThemesToStorage();
+                renderSavedThemes();
+                clearCurrentTheme();
+            });
+
+            function renderSavedThemes() {
+                ui.themeCheckboxes.innerHTML = '';
+                if (savedThemes.length > 0) {
+                    savedThemes.forEach(theme => createCheckbox(theme.name, theme.name, ui.themeCheckboxes));
+                } else {
+                    ui.themeCheckboxes.innerHTML = '<p class="text-slate-400 col-span-full text-center my-auto">위에서 테마를 저장하면 여기에 표시됩니다.</p>';
+                }
+            }
+            
+            function createCheckbox(id, value, container) {
+                const div = document.createElement('div'); div.className = 'flex items-center relative';
+                const input = document.createElement('input'); input.type = 'checkbox'; input.id = `theme-${id.replace(/[\s/]/g, '-')}`; input.name = 'themes'; input.value = value; input.className = 'h-4 w-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500';
+                const label = document.createElement('label'); label.htmlFor = input.id; label.textContent = value; label.className = 'ml-2 block text-sm font-semibold text-slate-700 cursor-pointer';
+                label.addEventListener('mouseover', (e) => showTooltip(e, value)); label.addEventListener('mousemove', (e) => moveTooltip(e)); label.addEventListener('mouseout', hideTooltip);
+                div.appendChild(input); div.appendChild(label);
+                const btnGroup = document.createElement('div'); btnGroup.className = 'flex items-center ml-auto';
+                const editBtn = document.createElement('button'); editBtn.innerHTML = '&#9998;'; editBtn.className = 'ml-2 text-blue-500 hover:text-blue-700 text-xs'; editBtn.onclick = (e) => { e.preventDefault(); startEditingTheme(value); };
+                btnGroup.appendChild(editBtn);
+                const deleteBtn = document.createElement('button'); deleteBtn.innerHTML = '&#10005;'; deleteBtn.className = 'ml-1 text-red-500 hover:text-red-700 text-xs'; deleteBtn.onclick = (e) => { e.preventDefault(); deleteTheme(value); };
+                btnGroup.appendChild(deleteBtn);
+                div.appendChild(btnGroup); container.appendChild(div);
+            }
+
+            function deleteTheme(themeName) { if (confirm(`'${themeName}' 테마를 정말 삭제하시겠습니까?`)) { savedThemes = savedThemes.filter(t => t.name !== themeName); saveThemesToStorage(); renderSavedThemes(); } }
+            function startEditingTheme(themeName) { const theme = savedThemes.find(t => t.name === themeName); if (!theme) return; editingThemeName = themeName; ui.themeName.value = theme.name; currentTheme = JSON.parse(JSON.stringify(theme)); renderCurrentThemeStocks(); ui.saveTheme.textContent = '테마 수정'; ui.saveTheme.className = ui.saveTheme.className.replace(/bg-green-\d+/, 'bg-orange-500').replace(/hover:bg-green-\d+/, 'hover:bg-orange-600'); ui.cancelEdit.classList.remove('hidden'); }
+            function stopEditingTheme() { editingThemeName = null; ui.saveTheme.textContent = '테마 저장'; ui.saveTheme.className = ui.saveTheme.className.replace(/bg-orange-\d+/, 'bg-green-600').replace(/hover:bg-orange-\d+/, 'hover:bg-green-700'); ui.cancelEdit.classList.add('hidden'); clearCurrentTheme(); }
+            ui.cancelEdit.addEventListener('click', stopEditingTheme);
+            ui.clearTheme.addEventListener('click', clearCurrentTheme);
+            function clearCurrentTheme() { currentTheme = { name: '', stocks: [] }; ui.themeName.value = ''; renderCurrentThemeStocks(); }
+
+            ui.addStock.addEventListener('click', () => {
+                const val = ui.stockInput.value.trim();
+                if (!val) return;
+                const match = val.match(/(.+?)\s*\((\S+)\)/);
+                let stock;
+                if (match) { stock = { Name: match[1].trim(), Code: match[2].trim() }; } 
+                else { stock = allStocks.find(s => s.Code.toUpperCase() === val.toUpperCase() || s.Name.toUpperCase() === val.toUpperCase()); }
+                if (stock && !currentTheme.stocks.some(s => s.Code === stock.Code)) {
+                    currentTheme.stocks.push(stock); renderCurrentThemeStocks(); ui.stockInput.value = ''; ui.stockInput.focus();
+                } else if (!stock) { alert('유효한 종목을 찾을 수 없습니다.'); } 
+                else { alert('이미 추가된 종목입니다.'); }
+            });
+            ui.stockInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') ui.addStock.click(); });
+            function renderCurrentThemeStocks() { ui.currentStocks.innerHTML = currentTheme.stocks.map(stock => `<span class="inline-flex items-center bg-indigo-100 text-indigo-800 rounded-full px-3 py-1 text-sm font-semibold">${stock.Name}<button data-code="${stock.Code}" class="ml-2 text-indigo-500 hover:text-indigo-700 font-bold">x</button></span>`).join('') || '<p class="text-slate-400">여기에 종목이 추가됩니다.</p>'; }
+            ui.currentStocks.addEventListener('click', (e) => { if(e.target.tagName === 'BUTTON') { currentTheme.stocks = currentTheme.stocks.filter(s => s.Code !== e.target.dataset.code); renderCurrentThemeStocks(); } });
+            function showTooltip(e, themeName) { const theme = savedThemes.find(t => t.name === themeName); if (!theme) return; ui.tooltip.innerHTML = `<strong>${theme.name}</strong><ul>${theme.stocks.map(s => `<li>${s.Name} (${s.Code})</li>`).join('')}</ul>`; ui.tooltip.style.display = 'block'; moveTooltip(e); }
+            function moveTooltip(e) { ui.tooltip.style.left = e.pageX + 15 + 'px'; ui.tooltip.style.top = e.pageY + 15 + 'px'; }
+            function hideTooltip() { ui.tooltip.style.display = 'none'; }
+            ui.timeframeSelector.addEventListener('click', (e) => { if (e.target.tagName === 'BUTTON') { ui.timeframeSelector.querySelector('button.active').classList.remove('active'); e.target.classList.add('active'); } });
+
+            // 분석 실행
+            ui.analyze.addEventListener('click', async () => {
+                const selectedNames = Array.from(document.querySelectorAll('input[name="themes"]:checked')).map(el => el.value);
+                const selectedThemes = savedThemes.filter(t => selectedNames.includes(t.name)).map(t => ({ name: t.name, codes: t.stocks.map(s => s.Code) }));
+                if (selectedThemes.length === 0) { alert('분석할 테마를 하나 이상 선택해주세요.'); return; }
+                const startDate = document.getElementById('start-date').value;
+                const endDate = document.getElementById('end-date').value;
+                const timeframe = ui.timeframeSelector.querySelector('button.active').dataset.value;
+                if (!startDate || !endDate || new Date(startDate) > new Date(endDate)) { alert('올바른 기간을 선택해주세요.'); return; }
+
+                document.getElementById('loading').classList.remove('hidden');
+                document.getElementById('dashboard').classList.add('hidden');
+
+                try {
+                    const res = await fetch('http://127.0.0.1:5001/api/stock-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ themes: selectedThemes, startDate, endDate, timeframe }), });
+                    if (!res.ok) throw new Error(`서버 통신 오류: ${res.statusText}`);
+                    rawData = await res.json();
+                    if (rawData.error) throw new Error(`서버 오류: ${rawData.error}`);
+
+                    document.getElementById('loading').classList.add('hidden');
+                    document.getElementById('dashboard').classList.remove('hidden');
+
+                    setTimeout(() => {
+                        if (rawData.themed_returns.length > 0) {
+                            summaryData = updateSummary(rawData.themed_returns);
+                            renderPerformanceChart(rawData.themed_returns);
+                            renderHeatmap(rawData.themed_returns, 'heatmap-chart', 'sector');
+                            renderWinnersTable(rawData.themed_returns, 'winner-theme-table', 3, 'sector');
+                            if(timeframe === 'D'){
+                               document.getElementById('stock-heatmap-section').style.display = 'block';
+                               renderHeatmap(rawData.stock_level_returns, 'stock-heatmap-chart', 'stock_name');
+                               renderWinnersTable(rawData.stock_level_returns, 'winner-stock-table', 5, 'stock_name');
+                            } else {
+                               document.getElementById('stock-heatmap-section').style.display = 'none';
+                            }
+                            renderCorrelationMatrix(rawData.correlation_matrix);
+                        } else { 
+                            alert('선택한 기간에 해당하는 데이터가 없습니다.');
+                            document.getElementById('dashboard').classList.add('hidden');
+                        }
+                    }, 0);
+                } catch (error) { alert(`분석 실패: ${error.message}`); document.getElementById('loading').classList.add('hidden'); document.getElementById('dashboard').classList.add('hidden'); }
+            });
+
+            // 계산 및 시각화 함수
+            function calculateCumulativeReturn(returns) { return (returns.reduce((acc, daily) => acc * (1 + daily.value / 100), 1) - 1) * 100; }
+            function updateSummary(data) {
+                const returnsByGroup = data.reduce((acc, item) => { (acc[item.sector] = acc[item.sector] || []).push(item); return acc; }, {});
+                const cumReturns = Object.entries(returnsByGroup).map(([name, rets]) => ({ name, value: calculateCumulativeReturn(rets) }));
+                const sorted = cumReturns.sort((a, b) => b.value - a.value);
+                if (sorted.length === 0) return {};
+                const best = sorted[0], worst = sorted[sorted.length - 1];
+                document.getElementById('summary-cards').innerHTML = `<div class="bg-slate-100 p-6 rounded-lg"><h3 class="text-sm font-medium text-slate-500 uppercase">Best Performer</h3><p class="mt-1 text-2xl font-semibold text-slate-900">${best.name||'N/A'}</p><p class="mt-1 text-xl font-medium text-green-600">+${(best.value||0).toFixed(2)}%</p></div><div class="bg-slate-100 p-6 rounded-lg"><h3 class="text-sm font-medium text-slate-500 uppercase">Worst Performer</h3><p class="mt-1 text-2xl font-semibold text-slate-900">${worst.name||'N/A'}</p><p class="mt-1 text-xl font-medium text-red-600">${(worst.value||0).toFixed(2)}%</p></div>`;
+                return { best, worst };
+            }
+
+            function renderPerformanceChart(data) {
+                const ctx = document.getElementById('performance-line-chart').getContext('2d');
+                if(performanceChart) performanceChart.destroy();
+                const returnsByGroup = data.reduce((acc, item) => { (acc[item.sector] = acc[item.sector] || []).push(item); return acc; }, {});
+                const datasets = Object.entries(returnsByGroup).map(([name, returns]) => {
+                    let cumulative = 100;
+                    const chartData = returns.map(r => { cumulative *= (1 + r.value / 100); return { x: r.date, y: cumulative }; });
+                    const color = `hsl(${Math.random() * 360}, 70%, 50%)`;
+                    return { label: name, data: chartData, borderColor: color, fill: false, tension: 0.1 };
+                });
+                performanceChart = new Chart(ctx, { type: 'line', data: { datasets }, options: { scales: { x: { type: 'time', time: { unit: 'day', tooltipFormat: 'yyyy-MM-dd' } }, y: { title: { display: true, text: '성장률 (초기값 100)' } } } }});
+            }
+
+            function renderHeatmap(data, canvasId, groupBy) {
+                 const chartMap = { 'heatmap-chart': heatmapChart, 'stock-heatmap-chart': stockHeatmapChart };
+                 let chartInstance = chartMap[canvasId];
+                 const ctx = document.getElementById(canvasId).getContext('2d');
+                 const container = (canvasId === 'stock-heatmap-chart') ? ui.stockHeatmapContainer : document.getElementById('heatmap-section').querySelector('.chart-container');
+                 
+                 if (chartInstance) chartInstance.destroy();
+                 if (!data || data.length === 0) { ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height); return; }
+                 const dates = [...new Set(data.map(d => d.date))].sort();
+                 const returnsByGroup = data.reduce((acc, item) => { const key = item[groupBy]; (acc[key] = acc[key] || []).push(item); return acc; }, {});
+                 const cumReturns = Object.entries(returnsByGroup).map(([name, rets]) => ({ name, value: calculateCumulativeReturn(rets) }));
+                 const sortedGroups = cumReturns.sort((a, b) => b.value - a.value).map(g => g.name);
+                 const chartData = data.map(d => ({ x: d.date, y: d[groupBy], v: d.value }));
+
+                 if (canvasId === 'stock-heatmap-chart') {
+                     const minHeightPerStock = 30;
+                     const calculatedHeight = Math.max(400, sortedGroups.length * minHeightPerStock);
+                     container.style.height = `${calculatedHeight}px`;
+                 } else {
+                     container.style.height = '';
+                 }
+                 
+                 const newChart = new Chart(ctx, {
+                    type: 'matrix', 
+                    data: { 
+                        datasets: [{ 
+                            label: `수익률 (%)`, data: chartData, 
+                            backgroundColor: c => { const v = c.dataset.data[c.dataIndex]?.v; if (v === undefined) return '#eee'; const a = Math.min(Math.abs(v) / 2.5, 1); return v > 0 ? `rgba(16, 185, 129, ${a})` : `rgba(220, 38, 38, ${a})`; }, 
+                            borderColor: 'rgba(255, 255, 255, 0.5)', borderWidth: 1, 
+                            width: ({chart}) => (chart.chartArea?.width || 0) / dates.length,
+                            height: ({chart}) => (chart.chartArea?.height || 0) / sortedGroups.length
+                        }] 
+                    }, 
+                    options: { 
+                        responsive: true, maintainAspectRatio: false, 
+                        plugins: { legend: { display: false }, tooltip: { callbacks: { title: c => `${c[0].raw.x} - ${c[0].raw.y}`, label: c => `수익률: ${c.raw.v.toFixed(2)}%` } } }, 
+                        scales: { 
+                            x: { type: 'category', labels: dates, ticks: { maxRotation: 90, minRotation: 45, autoSkip: true, maxTicksLimit: 20 }, grid: { display: false } }, 
+                            y: { type: 'category', labels: sortedGroups, offset: true, ticks: { callback: function(val) { const name = this.getLabelForValue(val); const info = cumReturns.find(g => g.name === name); return `${name} (${(info?info.value:0).toFixed(2)}%)`; } }, grid: { display: false } } 
+                        } 
+                    } 
+                });
+                if (canvasId === 'heatmap-chart') heatmapChart = newChart;
+                else stockHeatmapChart = newChart;
+            }
+
+            function renderCorrelationMatrix(data) {
+                const ctx = document.getElementById('correlation-chart').getContext('2d');
+                if (correlationChart) correlationChart.destroy();
+                if (!data || Object.keys(data).length < 2) { ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height); return; }
+                const labels = Object.keys(data);
+                const chartData = [];
+                labels.forEach(rowLabel => {
+                    labels.forEach(colLabel => {
+                        chartData.push({ x: colLabel, y: rowLabel, v: data[rowLabel][colLabel] });
+                    });
+                });
+                correlationChart = new Chart(ctx, { 
+                    type: 'matrix', 
+                    data: { 
+                        datasets: [{ 
+                            data: chartData, 
+                            backgroundColor: c => { const v = c.dataset.data[c.dataIndex]?.v; if (v === undefined) return '#eee'; const a = Math.abs(v); if(v > 0.99) return '#ccc'; return v > 0 ? `rgba(59, 130, 246, ${a})` : `rgba(220, 38, 38, ${a})`;},
+                            width: ({chart}) => (chart.chartArea?.width || 0) / labels.length,
+                            height: ({chart}) => (chart.chartArea?.height || 0) / labels.length
+                        }] 
+                    }, 
+                    options: { 
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => `상관계수: ${c.raw.v.toFixed(3)}` } } }, 
+                        scales: { x: { type: 'category', labels, grid: { display: false } }, y: { type: 'category', labels, offset: true, grid: { display: false } } } 
+                    }
+                });
+            }
+
+            function renderWinnersTable(data, tableId, topN, groupBy) {
+                const table = document.getElementById(tableId);
+                if (!table || !data || data.length === 0) { if(table) table.innerHTML = ''; return; }
+                
+                const dates = [...new Set(data.map(d => d.date))].sort();
+                const dataByDate = dates.reduce((acc, date) => {
+                    acc[date] = data.filter(d => d.date === date).sort((a,b) => b.value - a.value).slice(0, topN);
+                    return acc;
+                }, {});
+
+                let tableHTML = '<thead><tr><th>순위</th>';
+                dates.forEach(date => { tableHTML += `<th>${date}</th>`; });
+                tableHTML += '</tr></thead><tbody>';
+
+                for(let i = 0; i < topN; i++) {
+                    tableHTML += `<tr><td>${i+1}위</td>`;
+                    dates.forEach(date => {
+                        const winner = dataByDate[date][i];
+                        if (winner) {
+                            const value = winner.value;
+                            const color = value > 0 ? 'text-green-600' : (value < 0 ? 'text-red-600' : 'text-gray-600');
+                            const sign = value > 0 ? '+' : '';
+                            tableHTML += `<td><div class="font-semibold">${winner[groupBy].split(' (')[0]}</div><div class="${color} text-xs">${sign}${value.toFixed(2)}%</div></td>`;
+                        } else {
+                            tableHTML += '<td>-</td>';
+                        }
+                    });
+                    tableHTML += '</tr>';
+                }
+                tableHTML += '</tbody>';
+                table.innerHTML = tableHTML;
+            }
+            
+            initialize();
+        });
+    </script>
+</body>
+</html>
