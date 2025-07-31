@@ -116,7 +116,7 @@
                 loadThemesFromStorage();
                 renderCurrentThemeStocks();
                 try {
-                    const res = await fetch('https://front-test-1-7vkn.onrender.com/api/all-stocks');
+                    const res = await fetch('https://front-test-hlbo.onrender.com/api/all-stocks');
                     if (!res.ok) throw new Error('서버에서 전체 종목 목록을 가져오지 못했습니다.');
                     const data = await res.json();
                     if(data.error) throw new Error(data.error);
@@ -214,7 +214,7 @@
                 document.getElementById('dashboard').classList.add('hidden');
 
                 try {
-                    const res = await fetch('https://front-test-1-7vkn.onrender.com/api/stock-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ themes: selectedThemes, startDate, endDate, timeframe }), });
+                    const res = await fetch('https://front-test-hlbo.onrender.com/api/stock-data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ themes: selectedThemes, startDate, endDate, timeframe }), });
                     if (!res.ok) throw new Error(`서버 통신 오류: ${res.statusText}`);
                     rawData = await res.json();
                     if (rawData.error) throw new Error(`서버 오류: ${rawData.error}`);
